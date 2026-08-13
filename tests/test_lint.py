@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from gongwen_lint.cli import main
@@ -81,6 +82,54 @@ class DocxTests(unittest.TestCase):
             report = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertEqual(report["summary"]["file_count"], 1)
             self.assertEqual(report["findings"][0]["rule"], "draft.placeholder")
+
+    def test_rejects_path_traversal_member(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "traversal.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("../outside.xml", "unsafe")
+                archive.writestr("word/document.xml", "<document />")
+            with self.assertRaisesRegex(ValueError, "unsafe ZIP member path"):
+                read_docx(path)
+
+    def test_rejects_excessive_member_count(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "many-members.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", "<document />")
+                for number in range(4):
+                    archive.writestr(f"word/item-{number}.xml", "<item />")
+            with mock.patch("gongwen_lint.docx.MAX_ZIP_MEMBERS", 4):
+                with self.assertRaisesRegex(ValueError, "too many ZIP members"):
+                    read_docx(path)
+
+    def test_rejects_suspicious_compression_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "compressed.docx"
+            payload = "<document>" + ("A" * 100_000) + "</document>"
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("word/document.xml", payload)
+            with mock.patch("gongwen_lint.docx.MAX_COMPRESSION_RATIO", 10):
+                with self.assertRaisesRegex(ValueError, "suspicious compression ratio"):
+                    read_docx(path)
+
+    def test_rejects_xml_dtd_and_entities(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "entity.docx"
+            payload = '<!DOCTYPE doc [<!ENTITY sample "text">]><doc>&sample;</doc>'
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", payload)
+            with self.assertRaisesRegex(ValueError, "forbidden DTD or entity"):
+                read_docx(path)
+
+    def test_rejects_oversized_xml_member(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "large-xml.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", "<document />")
+            with mock.patch("gongwen_lint.docx.MAX_XML_MEMBER_SIZE", 4):
+                with self.assertRaisesRegex(ValueError, "XML member.*too large"):
+                    read_docx(path)
 
 
 if __name__ == "__main__":
