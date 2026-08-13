@@ -18,6 +18,15 @@ SUPPORTED_SUFFIXES = {".txt", ".md", ".docx"}
 SEVERITY = {"warning": 1, "error": 2}
 
 
+def _prepare_console() -> None:
+    """Use UTF-8 for Chinese diagnostics on Windows and in CI."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gongwen-lint",
@@ -83,6 +92,7 @@ def _write(path: str, content: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _prepare_console()
     args = _parser().parse_args(argv)
     try:
         paths = _collect_paths(args.paths)
