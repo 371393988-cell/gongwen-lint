@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from pathlib import PurePosixPath
+import stat
 import zipfile
 from xml.etree import ElementTree
 
@@ -12,6 +14,84 @@ from .lint import Finding
 WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS = {"w": WORD_NS}
 TWIPS_PER_MM = 1440 / 25.4
+
+# Conservative defaults for documents accepted from untrusted sources.  The
+# checks run against ZIP metadata before any member is decompressed.
+MAX_ARCHIVE_SIZE = 100 * 1024 * 1024
+MAX_ZIP_MEMBERS = 2048
+MAX_MEMBER_SIZE = 64 * 1024 * 1024
+MAX_TOTAL_UNCOMPRESSED_SIZE = 256 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 1000
+MAX_XML_MEMBER_SIZE = 32 * 1024 * 1024
+
+
+def _safe_member_name(name: str) -> str:
+    """Return a normalized ZIP member name or reject unsafe paths."""
+
+    if not name or "\x00" in name:
+        raise ValueError("DOCX contains an empty or invalid ZIP member name")
+    normalized = name.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    if normalized.startswith("/") or path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"DOCX contains an unsafe ZIP member path: {name!r}")
+    if path.parts and ":" in path.parts[0]:
+        raise ValueError(f"DOCX contains an unsafe ZIP member path: {name!r}")
+    return path.as_posix()
+
+
+def _preflight_archive(path: str | Path, archive: zipfile.ZipFile) -> None:
+    """Validate ZIP metadata before reading untrusted DOCX members."""
+
+    archive_size = Path(path).stat().st_size
+    if archive_size > MAX_ARCHIVE_SIZE:
+        raise ValueError(
+            f"DOCX archive is too large ({archive_size} bytes; limit {MAX_ARCHIVE_SIZE})"
+        )
+
+    members = archive.infolist()
+    if len(members) > MAX_ZIP_MEMBERS:
+        raise ValueError(
+            f"DOCX contains too many ZIP members ({len(members)}; limit {MAX_ZIP_MEMBERS})"
+        )
+
+    total_size = 0
+    seen: set[str] = set()
+    for info in members:
+        normalized = _safe_member_name(info.filename)
+        if normalized in seen:
+            raise ValueError(f"DOCX contains a duplicate ZIP member: {normalized!r}")
+        seen.add(normalized)
+
+        if info.flag_bits & 0x1:
+            raise ValueError(f"DOCX contains an encrypted ZIP member: {normalized!r}")
+
+        file_type = (info.external_attr >> 16) & 0o170000
+        if file_type == stat.S_IFLNK:
+            raise ValueError(f"DOCX contains a symbolic-link ZIP member: {normalized!r}")
+
+        if info.file_size > MAX_MEMBER_SIZE:
+            raise ValueError(
+                f"DOCX member {normalized!r} is too large "
+                f"({info.file_size} bytes; limit {MAX_MEMBER_SIZE})"
+            )
+        total_size += info.file_size
+        if total_size > MAX_TOTAL_UNCOMPRESSED_SIZE:
+            raise ValueError(
+                "DOCX uncompressed content exceeds the configured safety limit "
+                f"({MAX_TOTAL_UNCOMPRESSED_SIZE} bytes)"
+            )
+
+        if info.file_size:
+            if info.compress_size == 0:
+                raise ValueError(
+                    f"DOCX member {normalized!r} has an invalid compression size"
+                )
+            ratio = info.file_size / info.compress_size
+            if ratio > MAX_COMPRESSION_RATIO:
+                raise ValueError(
+                    f"DOCX member {normalized!r} has a suspicious compression ratio "
+                    f"({ratio:.0f}:1; limit {MAX_COMPRESSION_RATIO}:1)"
+                )
 
 
 def _attr(element: ElementTree.Element, name: str) -> str | None:
@@ -162,9 +242,18 @@ def _layout_findings(
 
 def _read_xml(archive: zipfile.ZipFile, member: str) -> ElementTree.Element | None:
     try:
-        payload = archive.read(member)
+        info = archive.getinfo(member)
     except KeyError:
         return None
+    if info.file_size > MAX_XML_MEMBER_SIZE:
+        raise ValueError(
+            f"DOCX XML member {member!r} is too large "
+            f"({info.file_size} bytes; limit {MAX_XML_MEMBER_SIZE})"
+        )
+    payload = archive.read(info)
+    upper_payload = payload.upper()
+    if b"<!DOCTYPE" in upper_payload or b"<!ENTITY" in upper_payload:
+        raise ValueError(f"DOCX XML member {member!r} contains a forbidden DTD or entity")
     return ElementTree.fromstring(payload)
 
 
@@ -179,6 +268,7 @@ def read_docx(
     source = str(path)
     findings: list[Finding] = []
     with zipfile.ZipFile(path) as archive:
+        _preflight_archive(path, archive)
         document = _read_xml(archive, "word/document.xml")
         if document is None:
             raise ValueError("DOCX is missing word/document.xml")
