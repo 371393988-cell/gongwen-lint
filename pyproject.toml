@@ -4,17 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gongwen-lint"
-version = "0.1.0"
+version = "0.1.1"
 description = "A local, explainable linter for Chinese official documents"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [{name = "371393988-cell"}]
 keywords = ["chinese", "documents", "lint", "docx", "government"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
-  "License :: OSI Approved :: MIT License",
   "Natural Language :: Chinese (Simplified)",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -28,6 +27,7 @@ dependencies = []
 [project.urls]
 Repository = "https://github.com/371393988-cell/gongwen-lint"
 Issues = "https://github.com/371393988-cell/gongwen-lint/issues"
+Changelog = "https://github.com/371393988-cell/gongwen-lint/blob/main/CHANGELOG.md"
 
 [project.scripts]
 gongwen-lint = "gongwen_lint.cli:main"
