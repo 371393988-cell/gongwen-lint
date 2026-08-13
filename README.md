@@ -1,5 +1,9 @@
 # gongwen-lint（公文校对工具）
 
+[![tests](https://github.com/371393988-cell/gongwen-lint/actions/workflows/tests.yml/badge.svg)](https://github.com/371393988-cell/gongwen-lint/actions/workflows/tests.yml)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 一个本地运行、规则透明、默认只读的中文公文校对命令行工具。
 
 `gongwen-lint` 用于在人工复核前发现可机械识别的问题，支持 `.txt`、`.md`
@@ -62,6 +66,9 @@ example.docx:12:8 [warning] wording.cliche
 每条结果包含文件、行或段落、列、严重程度、规则编号、命中的文本和修改建议。
 JSON 结构在同一主版本内保持向后兼容。
 
+仓库提供完全由人工编写的[合成示例](examples/README.md)，可用于快速试运行，
+其中不含任何真实机关名称、人员信息、业务数据或本地文稿。
+
 ## 设计原则
 
 - **本地优先**：不联网、不上传原文。
@@ -87,11 +94,8 @@ JSON 结构在同一主版本内保持向后兼容。
 
 ## 路线图
 
-- 支持用户自定义词表和机构规则集；
-- 增加标题、层级序号和附件标注检查；
-- 提供 SARIF 输出，便于代码审查平台展示；
-- 增加经匿名化处理的真实问题测试集；
-- 在严格保留修订痕迹的前提下探索可选修复建议。
+版本目标、验收标准和保密边界见 [ROADMAP.md](ROADMAP.md)。路线图只使用公开
+规范和合成材料，不以真实机关文稿作为公开测试数据。
 
 参与开发请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全与隐私说明见
 [SECURITY.md](SECURITY.md)。
@@ -99,4 +103,3 @@ JSON 结构在同一主版本内保持向后兼容。
 ## License
 
 [MIT](LICENSE)
-
